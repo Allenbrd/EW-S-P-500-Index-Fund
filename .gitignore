@@ -1,2 +1,4 @@
 mysecrets.py
 venv/
+__pycache__/
+recommended trades.xlsx
