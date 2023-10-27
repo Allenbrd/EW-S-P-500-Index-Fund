@@ -11,7 +11,7 @@ stocks = pd.read_csv('ressources\sp_500_stocks.csv')
 from mysecrets import IEX_CLOUD_API_TOKEN
 
 # initializing the final dataframe to return
-my_columns = ['Ticker', 'Stock Price', 'Market Capitalisation', 'Number of Shares to Buy']
+my_columns = ['Ticker', 'Stock Price', 'Market Capitalisation', 'Index Percentage', 'Number of Shares to Buy']
 final_df = pd.DataFrame(columns = my_columns)
 
 # Dividing stocks into groups
@@ -27,6 +27,8 @@ symbol_strings = []
 for i in range(0, len(symbol_groups)):
     symbol_strings.append(','.join(symbol_groups[i]))
 
+# Initializing the fund's global market capitalisation variable
+total_market_cap = 0 
 
 # Getting data by batch requests
 for i in range(len(symbol_groups)):
@@ -35,11 +37,12 @@ for i in range(len(symbol_groups)):
     data = requests.get(api_url).json()
     # Appending each stock's data to final_df
     for stock in data:
-        final_df.loc[-1] =  [stock['symbol'], stock['latestPrice'], stock['marketCap'], 'N/A']
+        if stock['marketCap'] is not None:
+            total_market_cap += stock['marketCap']
+        final_df.loc[-1] =  [stock['symbol'], stock['latestPrice'], stock['marketCap'], 'N/A', 'N/A']
         final_df.index = final_df.index + 1  # shifting index
         final_df = final_df.sort_index()  # sorting by index
         index = final_df.index
-
 
 # Getting the user's protfolio value
 portfolio_size = input("Enter the value of your portoflio: ")
@@ -50,13 +53,23 @@ except ValueError:
     portfolio_size = input("Enter the value of your portoflio: ")
     val = float(portfolio_size)
 
-position_size = val/len(final_df.index)
+# Computing the number of shares to buy per company
+# This calculation is weighted by each stock's percentage in the fund's total marketcap
 for i in range (0, len(final_df.index)):
-    final_df.loc[i, 'Number of Shares to Buy'] = math.floor(position_size/final_df.loc[i, 'Stock Price'])
+    if final_df.loc[i, 'Market Capitalisation'] is not None:
+        # Computing the stock's percentage of total fund market cap
+        position_percent = final_df.loc[i, 'Market Capitalisation']/total_market_cap
+        # Computing stock postion size is USD
+        position_size = val*position_percent
+        # Appending values to dataframe
+        final_df.loc[i, 'Index Percentage'] = position_percent
+        final_df.loc[i, 'Number of Shares to Buy'] = math.floor(position_size/final_df.loc[i, 'Stock Price'])
 
 # Saving trades on an excel sheet
 writer = pd.ExcelWriter('recommended trades.xlsx', engine = 'xlsxwriter')
 final_df.to_excel(writer, "Recommended Trades", index = False)
+
+
 
 # Formatting the sheet
 bg_color = '#0a0a23'
@@ -88,11 +101,21 @@ integer_format = writer.book.add_format(
     }
 )
 
+percent_format = writer.book.add_format(
+    {
+        'num_format': '00.00%',
+        'font_color': font_color,
+        'bg_color': bg_color,
+        'border': 1
+    }
+)
+
 column_formats = { 
                     'A': ['Ticker', string_format],
                     'B': ['Price', dollar_format],
                     'C': ['Market Capitalization', dollar_format],
-                    'D': ['Number of Shares to Buy', integer_format]
+                    'D': ['Index Percentage', percent_format],
+                    'E': ['Number of Shares to Buy', integer_format]
                     }
 
 for column in column_formats.keys():
